@@ -6,6 +6,7 @@
 
    autonomous
    constants
+   driver_vision
    lift
    physics
    robot
@@ -13,3 +14,4 @@
    swerve
    teleop
    vision
+   winch

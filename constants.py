@@ -5,15 +5,23 @@ and frame dimensions.
 import wpilib
 
 # Teleop control constants. Can be loaded from Preferences.
-fwdAxis = 1  # Forward/Backward axis
-strAxis = 0  # Left/Right axis
-rcwAxis = 4  # Rotation axis
+fwdAxis = 1  #: Forward/Backward axis
+strAxis = 0  #: Left/Right axis
+rcwAxis = 2  #: Rotation axis
 
-fwdInv = True  # Fwd/Bwd axis inverted
-strInv = True  # L/R axis inverted
-rcwInv = True  # Rot axis inverted
+liftAxis = 2  #: Lift control axis on throttle
+
+fwdInv = True  #: Fwd/Bwd axis inverted
+strInv = True  #: L/R axis inverted
+rcwInv = True  #: Rot axis inverted
 
 teleop_speed = 370
+turn_sensitivity = 0.25
+
+lift_deadband = 0.25  # deadband
+lift_coeff = 0.20
+
+winch_slack = -17450
 
 # Wraps the Preferences API to provide an alternative to all of the
 # getInt/getString/getWhatever methods
@@ -50,40 +58,56 @@ def load_control_config():
     WPILib before they have been initialized).
     """
     global fwdAxis, fwdInv, strAxis, strInv, rcwAxis, rcwInv, teleop_speed
+    global turn_sensitivity, liftAxis, liftInv, lift_deadband, lift_coeff
 
     fwdAxis = __load_preference('Control: Forward-Backward Axis', backup=1)
     fwdInv = __load_preference('Control: Fwd-Bwd Axis Inverted', backup=True)
 
     strAxis = __load_preference('Control: Left-Right Axis', backup=0)
-    strInv = __load_preference('Control: L-R Axis Inverted', backup=True)
+    strInv = __load_preference('Control: L-R Axis Inverted', backup=False)
 
-    rcwAxis = __load_preference('Control: Rotation Axis', backup=4)
+    rcwAxis = __load_preference('Control: Rotation Axis', backup=2)
     rcwInv = __load_preference('Control: Rot Axis Inverted', backup=True)
 
+    liftAxis = __load_preference('Control: Lift Control Axis', backup=2)
+    liftInv = __load_preference('Control: Lift Control Inverted', backup=False)
+    lift_deadband = __load_preference(
+        'Control: Lift Control Deadband', backup=0.25
+    )
+    lift_coeff = __load_preference(
+        'Control: Lift Control Coefficient', backup=0.3
+    )
+
     teleop_speed = __load_preference('Control: Teleop Speed', backup=370)
+    turn_sensitivity = __load_preference(
+        'Control: Turn Sensitivity', backup=0.25
+    )
 
 
-# Swerve module hardware configuration.
-# List of tuples of form ('module name', steer_id, drive_id)
-# See swerve/swerve_drive.py
+#: Swerve module hardware configuration.
+#: List of tuples of form ('module name', steer_id, drive_id)
+#: See swerve/swerve_drive.py
 swerve_config = [
-    ('Back Right', 11, 10),
-    ('Back Left', 9, 8),
-    ('Front Right', 7, 6),
-    ('Front Left', 5, 4),
+    ('Front Right', 8, 9),
+    ('Front Left', 11, 10),
+    ('Back Right', 6, 4),
+    ('Back Left', 7, 5),
 ]
 
-# Lift motor contorller CAN IDs. Currently dummy values.
+#: Lift motor contorller CAN IDs. Currently dummy values.
 lift_ids = {
-    'left': 20,
-    'right': 21
+    'left': 31,
+    'right': 42
 }
 
-# Claw motor contorller CAN ID(s).
-claw_id = 22
-claw_contact_sensor_channel = 1
+# Claw motor controller CAN ID(s).
+claw_id = 2
 
-# Both are in inches, but exact units don't matter
-# (as long as both use the same units)
-chassis_length = 24
+# The length of the chassis (units do not matter as long as they match)
+chassis_length = 23
+
+# The width of the chassis (units do not matter as long as they match)
 chassis_width = 27
+
+# Winch Motor CAN ID
+winch_id = 35

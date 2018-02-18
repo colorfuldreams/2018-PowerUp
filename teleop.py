@@ -4,20 +4,21 @@ Contains functions for teleop logic.
 import wpilib
 import numpy as np
 import constants
-import math
 from robotpy_ext.control.button_debouncer import ButtonDebouncer
+from ctre.talonsrx import TalonSRX
 
 class Teleop:
     last_applied_control = np.array([0, 0, 0])
     foc_enabled = False
 
-    def __init__(self, robot, control_stick):
+    def __init__(self, robot):
         self.robot = robot
-        self.stick = control_stick
-        self.navx = self.robot.navx
+        self.stick = wpilib.Joystick(0)
+        self.throttle = wpilib.Joystick(1)
+
         self.prefs = wpilib.Preferences.getInstance()
 
-        self.toggle_foc_button = ButtonDebouncer(self.stick, 2)
+        self.toggle_foc_button = ButtonDebouncer(self.stick, 7)
         self.zero_yaw_button = ButtonDebouncer(self.stick, 3)
         self.switch_camera_button = ButtonDebouncer(self.stick, 4)
         self.low_speed_button = ButtonDebouncer(self.stick, 9)
@@ -28,27 +29,58 @@ class Teleop:
             'FOC Enabled', self.foc_enabled
         )
 
-        if self.navx is not None:
-            wpilib.SmartDashboard.putNumber(
-                'Heading',
-                self.navx.getFusedHeading()
-            )
-            wpilib.SmartDashboard.putNumber(
-                'Accumulated Yaw',
-                self.navx.getAngle()
-            )
-
     def buttons(self):
-        if self.navx is not None:
+        if self.robot.imu.is_present():
             if self.zero_yaw_button.get():
-                self.navx.zeroYaw()
+                self.robot.imu.reset()
 
             if self.toggle_foc_button.get():
                 self.foc_enabled = not self.foc_enabled
 
         if self.switch_camera_button.get():
-            current_camera = (self.prefs.getInt('Selected Camera') + 1) % 1
+            current_camera = (self.prefs.getInt('Selected Camera', 0) + 1) % 1
             self.prefs.putInt('Selected Camera', current_camera)
+
+    def lift_control(self):
+        liftPct = self.throttle.getRawAxis(constants.liftAxis)
+
+        if constants.liftInv:
+            liftPct *= -1
+
+        if abs(liftPct) < constants.lift_deadband:
+            liftPct = 0
+
+        liftPct *= constants.lift_coeff
+
+        wpilib.SmartDashboard.putNumber("Lift Power", liftPct)
+
+        self.robot.lift.setLiftPower(liftPct)
+
+    def claw_control(self):
+        clawPct = self.throttle.getRawAxis(5)
+        clawPct *= 0.35
+
+        self.robot.claw.talon.set(
+            TalonSRX.ControlMode.PercentOutput, clawPct
+        )
+
+    def winch_control(self):
+        if self.throttle.getRawButton(1):
+            if (
+                self.robot.winch.talon.getSelectedSensorPosition(0)
+                > constants.winch_slack
+            ):
+                self.robot.winch.forward()
+            else:
+                self.robot.winch.forward()
+                self.robot.lift.setLiftPower(0.35)
+        elif self.throttle.getRawButton(3):
+            self.robot.winch.forward()
+        elif self.throttle.getRawButton(2):
+            self.robot.winch.reverse()
+        else:
+            self.robot.winch.stop()
+
 
     def drive(self):
         """
@@ -56,8 +88,8 @@ class Teleop:
         """
 
         ctrl = np.array([
-            self.stick.getRawAxis(constants.fwdAxis),
-            self.stick.getRawAxis(constants.strAxis)
+            self.stick.getRawAxis(1),
+            self.stick.getRawAxis(0)
         ])
 
         if constants.fwdInv:
@@ -72,13 +104,9 @@ class Teleop:
             ctrl[1] = 0
             linear_control_active = False
 
-        if (self.navx is not None and
-                self.navx.isConnected() and self.foc_enabled):
+        if (self.robot.imu.is_present() and self.foc_enabled):
             # perform FOC coordinate transform
-            hdg = self.navx.getFusedHeading() * (math.pi / 180)
-
-            if self.prefs.getBoolean('Reverse Heading Direction', False):
-                hdg *= -1
+            hdg = self.robot.imu.get_robot_heading()
 
             # Right-handed passive (alias) transform matrix
             foc_transform = np.array([
@@ -88,16 +116,16 @@ class Teleop:
 
             ctrl = np.squeeze(np.matmul(foc_transform, ctrl))
 
-        tw = self.stick.getRawAxis(constants.rcwAxis)
+        tw = self.stick.getRawAxis(2)
         if constants.rcwInv:
             tw *= -1
 
         rotation_control_active = True
-        if abs(tw) < 0.1:
+        if abs(tw) < 0.15:
             tw = 0
             rotation_control_active = False
 
-        tw /= 2
+        tw *= constants.turn_sensitivity
 
         if linear_control_active or rotation_control_active:
             self.last_applied_control = np.array([
